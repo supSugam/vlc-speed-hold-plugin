@@ -1,11 +1,9 @@
 /*****************************************************************************
  * speed_hold.c : A plugin that allows to speed up a video by holding a mouse button
  *****************************************************************************
- * Copyright (C) 2014-2025 Maxim Biro
- * Copyright (C) 2024 Gemini
+ * Copyright (C) 2025 supSugam
  *
- * Authors: Maxim Biro <nurupo.contributions@gmail.com>
- *          Gemini
+ * Authors: supSugam
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *
@@ -92,6 +90,12 @@ static const int mouse_button_values[] = {-1, 1, 4, 2, 8, 16, 32, 64};
 #define DISPLAY_SPEED_CFG CFG_PREFIX "display-speed"
 #define DISPLAY_SPEED_DEFAULT true
 
+#define REGIONAL_SPEED_CFG CFG_PREFIX "regional-speed"
+#define REGIONAL_SPEED_DEFAULT false
+
+#define EDGE_ACCELERATION_RATE_CFG CFG_PREFIX "edge-rate"
+#define EDGE_ACCELERATION_RATE_DEFAULT 4.0f
+
 static int OpenFilter(vlc_object_t *);
 static void CloseFilter(vlc_object_t *);
 static int OpenInterface(vlc_object_t *);
@@ -108,6 +112,8 @@ struct filter_sys_t
 {
     float original_rate;
     bool rate_changed_by_mouse;
+    int mouse_x;
+    int mouse_y;
 };
 
 // VLC 4.0 removed the advanced flag in 3716a7da5ba8dc30dbd752227c6a893c71a7495b
@@ -165,15 +171,14 @@ vlc_module_begin()
                  "Copyright " VERSION_COPYRIGHT
                  "</p>"
                  "<p>"
-                 "Homepage: <a href=\"" VERSION_HOMEPAGE "\">" VERSION_HOMEPAGE "</a><br>"
-                 "Donate: <a href=\"https://github.com/nurupo/donate/blob/master/README.md#donate\">https://github.com/nurupo/donate</a>"
+                 "Homepage: <a href=\"" VERSION_HOMEPAGE "\">" VERSION_HOMEPAGE "</a>"
                  "</p>"))
     set_section(N_("General"), NULL)
-    _add_integer(MOUSE_BUTTON_CFG, MOUSE_BUTTON_DEFAULT,
+    /* _add_integer(MOUSE_BUTTON_CFG, MOUSE_BUTTON_DEFAULT,
                  N_("Action mouse button"),
                  N_("Defines the mouse button for all actions."), false)
     vlc_config_set(VLC_CONFIG_LIST, (size_t)(sizeof(mouse_button_values_index)/sizeof(int))-1,
-                   mouse_button_values_index+1, mouse_button_names+1);
+                   mouse_button_values_index+1, mouse_button_names+1); */
     _add_float(ACCELERATION_RATE_CFG, ACCELERATION_RATE_DEFAULT,
               N_("Acceleration rate"),
               N_("Playback rate to set when acceleration is active."), false)
@@ -183,6 +188,14 @@ vlc_module_begin()
     _add_bool(DISPLAY_SPEED_CFG, DISPLAY_SPEED_DEFAULT,
               N_("Display speed text"),
               N_("Show the current speed on screen when accelerating."), false)
+    _add_bool(REGIONAL_SPEED_CFG, REGIONAL_SPEED_DEFAULT,
+              N_("Enable regional speed control"),
+              N_("Enable different speed controls based on mouse position."), false)
+    set_section(N_("Regional Speed"), NULL)
+    _add_float(EDGE_ACCELERATION_RATE_CFG, EDGE_ACCELERATION_RATE_DEFAULT,
+              N_("Edge acceleration rate"),
+              N_("Playback rate for the edges of the screen (first and last 20%). "
+                 "Only used when regional speed control is enabled."), true)
         add_submodule()
         set_capability("interface", 0)
 #if LIBVLC_VERSION_MAJOR <= 3
@@ -279,7 +292,23 @@ static void timer_callback(void* data)
 
     if (!p_sys->rate_changed_by_mouse) {
         p_sys->rate_changed_by_mouse = true;
-        float new_rate = var_InheritFloat(p_filter, ACCELERATION_RATE_CFG);
+        
+        float new_rate;
+        bool regional_speed = var_InheritBool(p_filter, REGIONAL_SPEED_CFG);
+
+        if (regional_speed) {
+            int width = p_filter->fmt_in.video.i_width;
+            float percentage = (float)p_sys->mouse_x / width;
+            
+            if (percentage < 0.2f || percentage > 0.8f) {
+                new_rate = var_InheritFloat(p_filter, EDGE_ACCELERATION_RATE_CFG);
+            } else {
+                new_rate = var_InheritFloat(p_filter, ACCELERATION_RATE_CFG);
+            }
+        } else {
+            new_rate = var_InheritFloat(p_filter, ACCELERATION_RATE_CFG);
+        }
+
         msg_Dbg(p_filter, "[Speed Hold] Accelerating to rate: %f", new_rate);
         SetRate((vlc_object_t*)p_filter, new_rate);
 
@@ -320,16 +349,7 @@ static void SetRate(vlc_object_t *p_obj, float rate)
     VLC_UNUSED(p_obj);
 }
 
-static int cfg_get_mouse_button(vlc_object_t *p_obj, const char *cfg, int default_value) {
-    int mouse_button_index = var_InheritInteger(p_obj, cfg);
-    msg_Dbg(p_obj, "[Speed Hold] cfg_get_mouse_button: index from config is %d", mouse_button_index);
-    if (mouse_button_index >= 0 && (size_t)mouse_button_index < sizeof(mouse_button_values)/sizeof(int)) {
-        msg_Dbg(p_obj, "[Speed Hold] cfg_get_mouse_button: returning value at index %d, which is %d", mouse_button_index, mouse_button_values[mouse_button_index]);
-        return mouse_button_values[mouse_button_index];
-    }
-    msg_Dbg(p_obj, "[Speed Hold] cfg_get_mouse_button: index out of bounds, using default index %d, value %d", default_value, mouse_button_values[default_value]);
-    return mouse_button_values[default_value];
-}
+
 
 static int mouse(filter_t *p_filter, vlc_mouse_t *p_mouse_out, const vlc_mouse_t *p_mouse_old, const vlc_mouse_t *p_mouse_new)
 {
@@ -344,14 +364,16 @@ static int mouse(filter_t *p_filter, vlc_mouse_t *p_mouse_out, const vlc_mouse_t
 
     msg_Dbg(p_filter, "[Speed Hold] mouse event: old_pressed=%d, new_pressed=%d", p_mouse_old->i_pressed, p_mouse_new->i_pressed);
 
-    const int mouse_button = cfg_get_mouse_button((vlc_object_t *)p_filter, MOUSE_BUTTON_CFG, MOUSE_BUTTON_DEFAULT);
-    msg_Dbg(p_filter, "[Speed Hold] configured mouse button: %d", mouse_button);
+    const int mouse_button = 1; // MOUSE_BUTTON_LEFT
+    msg_Dbg(p_filter, "[Speed Hold] hardcoded mouse button: %d", mouse_button);
 
     bool is_pressed = p_mouse_new->i_pressed & mouse_button;
     bool was_pressed = p_mouse_old->i_pressed & mouse_button;
 
     if (is_pressed && !was_pressed) {
         msg_Dbg(p_filter, "[Speed Hold] Mouse button pressed, scheduling timer");
+        p_sys->mouse_x = p_mouse_new->i_x;
+        p_sys->mouse_y = p_mouse_new->i_y;
         atomic_store(&timer_scheduled, true);
         int64_t delay = var_InheritInteger(p_filter, HOLD_DELAY_CFG);
         vlc_timer_schedule(timer, false, delay * 1000, 0);

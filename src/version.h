@@ -28,10 +28,10 @@
 // release vs in-development version
 #define VERSION_IS_RELEASE 0
 
-#define VERSION_AUTHOR    "Maxim Biro (nurupo)"
-#define VERSION_COPYRIGHT "(C) 2014-2025 " VERSION_AUTHOR
+#define VERSION_AUTHOR    "supSugam"
+#define VERSION_COPYRIGHT "(C) 2025 " VERSION_AUTHOR
 #define VERSION_LICENSE   "LGPL-2.1-or-later"
-#define VERSION_HOMEPAGE  "https://github.com/nurupo/vlc-pause-click-plugin"
+#define VERSION_HOMEPAGE  "https://github.com/supSugam/vlc-speed-hold-plugin"
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
