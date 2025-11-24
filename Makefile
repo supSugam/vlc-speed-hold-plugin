@@ -23,6 +23,7 @@ ifeq ($(OS),Linux)
 else ifeq ($(OS),Windows)
   EXT := dll
   RES := packaging/windows/version.rc.o
+  RC := windres
 else ifeq ($(OS),macOS)
   EXT := dylib
 else
@@ -48,7 +49,7 @@ clean:
 
 mostlyclean: clean
 
-SOURCES = src/speed_hold.c
+SOURCES = src/speed_hold.c src/osd.c src/playback.c
 
 $(SOURCES:%.c=%.o): %: src/speed_hold.c src/version.h
 

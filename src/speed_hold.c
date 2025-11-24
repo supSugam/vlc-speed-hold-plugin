@@ -59,6 +59,11 @@
 #include <vlc_vout.h>
 #include <vlc_vout_osd.h>
 #include <vlc_config.h>
+#include <vlc_spu.h>
+
+#include "config.h"
+#include "osd.h"
+#include "playback.h"
 
 #if LIBVLC_VERSION_MAJOR == 2 && LIBVLC_VERSION_MINOR == 1
 # include "third_party/vlc/2.1.0/include/vlc_interface.h"
@@ -72,38 +77,14 @@
 
 #define UNUSED(x) (void)(x)
 
-static const char *const mouse_button_names[] = {N_("None"), N_("Left Button"), N_("Middle Button"), N_("Right Button"), N_("Scroll Up"), N_("Scroll Down"), N_("Scroll Left"), N_("Scroll Right")};
-static const int mouse_button_values_index[] = {0, 1, 2, 3, 4, 5, 6, 7};
-static const int mouse_button_values[] = {-1, 1, 4, 2, 8, 16, 32, 64};
-
-#define CFG_PREFIX "speed-hold-"
-
-#define MOUSE_BUTTON_CFG CFG_PREFIX "mouse-button"
-#define MOUSE_BUTTON_DEFAULT 1 // MOUSE_BUTTON_LEFT
-
-#define ACCELERATION_RATE_CFG CFG_PREFIX "rate"
-#define ACCELERATION_RATE_DEFAULT 2.0f
-
-#define HOLD_DELAY_CFG CFG_PREFIX "hold-delay"
-#define HOLD_DELAY_DEFAULT 200
-
-#define DISPLAY_SPEED_CFG CFG_PREFIX "display-speed"
-#define DISPLAY_SPEED_DEFAULT true
-
-#define REGIONAL_SPEED_CFG CFG_PREFIX "regional-speed"
-#define REGIONAL_SPEED_DEFAULT false
-
-#define EDGE_ACCELERATION_RATE_CFG CFG_PREFIX "edge-rate"
-#define EDGE_ACCELERATION_RATE_DEFAULT 4.0f
-
 static int OpenFilter(vlc_object_t *);
 static void CloseFilter(vlc_object_t *);
 static int OpenInterface(vlc_object_t *);
 static void CloseInterface(vlc_object_t *);
-static void SetRate(vlc_object_t *p_obj, float rate);
-static void display_speed_text(vlc_object_t *p_obj, const char* text);
+static void timer_callback(void* data);
+static void pause_play(void);
 
-static intf_thread_t *p_intf = NULL;
+static intf_thread_t *p_interface_thread = NULL;
 static vlc_timer_t timer;
 static bool timer_initialized = false;
 static atomic_bool timer_scheduled;
@@ -174,11 +155,6 @@ vlc_module_begin()
                  "Homepage: <a href=\"" VERSION_HOMEPAGE "\">" VERSION_HOMEPAGE "</a>"
                  "</p>"))
     set_section(N_("General"), NULL)
-    /* _add_integer(MOUSE_BUTTON_CFG, MOUSE_BUTTON_DEFAULT,
-                 N_("Action mouse button"),
-                 N_("Defines the mouse button for all actions."), false)
-    vlc_config_set(VLC_CONFIG_LIST, (size_t)(sizeof(mouse_button_values_index)/sizeof(int))-1,
-                   mouse_button_values_index+1, mouse_button_names+1); */
     _add_float(ACCELERATION_RATE_CFG, ACCELERATION_RATE_DEFAULT,
               N_("Acceleration rate"),
               N_("Playback rate to set when acceleration is active."), false)
@@ -205,71 +181,24 @@ vlc_module_begin()
         set_callbacks(OpenInterface, CloseInterface)
 vlc_module_end()
 
-static void display_speed_text(vlc_object_t *p_obj, const char* text)
-{
-    if (!p_intf) {
-        return;
-    }
-
-    if (!var_InheritBool(p_obj, DISPLAY_SPEED_CFG)) {
-        if (text[0] == '\0') { // still allow clearing the text
-            // fall through
-        } else {
-            return;
-        }
-    }
-
-#if LIBVLC_VERSION_MAJOR >= 4
-    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_intf));
-    vlc_player_Lock(player);
-    vout_thread_t** pp_vout;
-    size_t i_vout;
-    pp_vout = vlc_player_vout_HoldAll(player, &i_vout);
-    if (!pp_vout) {
-        vlc_player_Unlock(player);
-        return;
-    }
-    for (size_t i = 0; i < i_vout; i ++) {
-        vout_OSDText(pp_vout[i], VOUT_SPU_CHANNEL_OSD, VOUT_ALIGN_TOP | VOUT_ALIGN_RIGHT, INT64_MAX, text);
-        vout_Release(pp_vout[i]);
-    }
-    vlc_player_Unlock(player);
-    free(pp_vout);
-#else
-    playlist_t* p_playlist = pl_Get(p_intf);
-    input_thread_t* p_input = playlist_CurrentInput(p_playlist);
-    if (!p_input) {
-        return;
-    }
-
-    vout_thread_t** pp_vout;
-    size_t i_vout;
-    if (input_Control(p_input, INPUT_GET_VOUTS, &pp_vout, &i_vout) != VLC_SUCCESS) {
-        vlc_object_release(p_input);
-        return;
-    }
-    for (size_t i = 0; i < i_vout; i ++) {
-        vout_OSDText(pp_vout[i], VOUT_SPU_CHANNEL_OSD, VOUT_ALIGN_TOP | VOUT_ALIGN_RIGHT, INT64_MAX, text);
-        vlc_object_release((vlc_object_t *)pp_vout[i]);
-    }
-    vlc_object_release(p_input);
-    free(pp_vout);
-#endif
-}
-
-#include <vlc_spu.h>
 static void pause_play(void)
 {
-    if (!p_intf) {
+    if (!p_interface_thread) {
         return;
     }
 
 #if 2 <= LIBVLC_VERSION_MAJOR && LIBVLC_VERSION_MAJOR <= 3
-    playlist_t* p_playlist = pl_Get(p_intf);
+    playlist_t* p_playlist = pl_Get(p_interface_thread);
+    if (!p_playlist) {
+        return;
+    }
     playlist_status_t status = playlist_Status(p_playlist);
     playlist_Control(p_playlist, status == PLAYLIST_RUNNING ? PLAYLIST_PAUSE : PLAYLIST_PLAY , 0);
 #elif LIBVLC_VERSION_MAJOR >= 4
-    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_intf));
+    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_interface_thread));
+    if (!player) {
+        return;
+    }
     vlc_player_Lock(player);
     int state = vlc_player_GetState(player);
     state == VLC_PLAYER_STATE_PLAYING ? vlc_player_Pause(player) : vlc_player_Resume(player);
@@ -310,7 +239,7 @@ static void timer_callback(void* data)
         }
 
         msg_Dbg(p_filter, "[Speed Hold] Accelerating to rate: %f", new_rate);
-        SetRate((vlc_object_t*)p_filter, new_rate);
+        SetRate(p_interface_thread, new_rate);
 
         char text[32];
         if (new_rate == (float)(int)new_rate) {
@@ -318,38 +247,9 @@ static void timer_callback(void* data)
         } else {
             snprintf(text, sizeof(text), "%.2fx", new_rate);
         }
-        display_speed_text((vlc_object_t*)p_filter, text);
+        display_speed_text(p_interface_thread, text);
     }
 }
-
-static void SetRate(vlc_object_t *p_obj, float rate)
-{
-    msg_Dbg(p_obj, "[Speed Hold] SetRate called with rate: %f", rate);
-    if (!p_intf) {
-        msg_Err(p_obj, "[Speed Hold] SetRate failed: p_intf is NULL");
-        return;
-    }
-
-#if LIBVLC_VERSION_MAJOR >= 4
-    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_intf));
-    vlc_player_Lock(player);
-    vlc_player_SetRate(player, rate);
-    vlc_player_Unlock(player);
-#else
-    playlist_t* p_playlist = pl_Get(p_intf);
-    input_thread_t *p_input = playlist_CurrentInput(p_playlist);
-    if(p_input)
-    {
-        var_SetFloat(p_input, "rate", rate);
-        vlc_object_release(p_input);
-    } else {
-        msg_Warn(p_obj, "[Speed Hold] SetRate failed: could not get p_input");
-    }
-#endif
-    VLC_UNUSED(p_obj);
-}
-
-
 
 static int mouse(filter_t *p_filter, vlc_mouse_t *p_mouse_out, const vlc_mouse_t *p_mouse_old, const vlc_mouse_t *p_mouse_new)
 {
@@ -380,19 +280,24 @@ static int mouse(filter_t *p_filter, vlc_mouse_t *p_mouse_out, const vlc_mouse_t
 
     } else if (!is_pressed && was_pressed) {
         msg_Dbg(p_filter, "[Speed Hold] Mouse button released");
-        if (atomic_exchange(&timer_scheduled, false)) {
-            // Timer was still scheduled, so it's a click
-            msg_Dbg(p_filter, "[Speed Hold] Click detected, pausing/playing");
-            vlc_timer_schedule(timer, false, 0, 0); // Unschedule
-            pause_play();
+        // Always unschedule the timer on release
+        vlc_timer_schedule(timer, false, 0, 0);
+
+        // Reset timer_scheduled flag immediately. The logic for click/hold
+        // relies on `p_sys->rate_changed_by_mouse` being set by the timer_callback
+        // if it was a hold.
+        atomic_store(&timer_scheduled, false);
+
+        if (p_sys->rate_changed_by_mouse) {
+            // Timer already fired and changed rate, so it was a hold
+            msg_Dbg(p_filter, "[Speed Hold] Hold detected, restoring original rate: %f", p_sys->original_rate);
+            p_sys->rate_changed_by_mouse = false;
+            SetRate(p_interface_thread, p_sys->original_rate);
+            display_speed_text(p_interface_thread, "");
         } else {
-            // Timer already fired, so it was a hold
-            if (p_sys->rate_changed_by_mouse) {
-                p_sys->rate_changed_by_mouse = false;
-                msg_Dbg(p_filter, "[Speed Hold] Restoring original rate: %f", p_sys->original_rate);
-                SetRate((vlc_object_t*)p_filter, p_sys->original_rate);
-                display_speed_text((vlc_object_t*)p_filter, "");
-            }
+            // Timer was still scheduled and didn't fire, so it's a click
+            msg_Dbg(p_filter, "[Speed Hold] Click detected, pausing/playing");
+            pause_play();
         }
     }
 
@@ -432,11 +337,8 @@ static int OpenFilter(vlc_object_t *p_this)
 
     print_version(p_this);
     msg_Dbg(p_filter, "[Speed Hold] filter sub-plugin opened");
-    msg_Dbg(p_filter, "[Speed Hold] MOUSE_BUTTON_LEFT = %d", 1);
-    msg_Dbg(p_filter, "[Speed Hold] MOUSE_BUTTON_RIGHT = %d", 2);
-    msg_Dbg(p_filter, "[Speed Hold] MOUSE_BUTTON_CENTER = %d", 4);
 
-    if (!p_intf) {
+    if (!p_interface_thread) {
         msg_Err(p_filter, "[Speed Hold] interface sub-plugin is not initialized. "
                 "Did you tick \"Speed Hold\" checkbox in "
                 "Preferences -> All -> Interface -> Control interfaces? "
@@ -452,12 +354,12 @@ static int OpenFilter(vlc_object_t *p_this)
     p_sys->rate_changed_by_mouse = false;
 
 #if LIBVLC_VERSION_MAJOR >= 4
-    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_intf));
+    vlc_player_t* player = vlc_playlist_GetPlayer(vlc_intf_GetMainPlaylist(p_interface_thread));
     vlc_player_Lock(player);
     p_sys->original_rate = vlc_player_GetRate(player);
     vlc_player_Unlock(player);
 #else
-    playlist_t* p_playlist = pl_Get(p_intf);
+    playlist_t* p_playlist = pl_Get(p_interface_thread);
     input_thread_t *p_input = playlist_CurrentInput(p_playlist);
     if(p_input)
     {
@@ -506,8 +408,8 @@ static void CloseFilter(vlc_object_t *p_this)
     {
         if (p_sys->rate_changed_by_mouse) {
             msg_Dbg(p_this, "[Speed Hold] Restoring original rate on close: %f", p_sys->original_rate);
-            SetRate(p_this, p_sys->original_rate);
-            display_speed_text(p_this, "");
+            SetRate(p_interface_thread, p_sys->original_rate);
+            display_speed_text(p_interface_thread, "");
         }
         free(p_sys);
     }
@@ -515,10 +417,10 @@ static void CloseFilter(vlc_object_t *p_this)
 
 static int OpenInterface(vlc_object_t *p_this)
 {
-    p_intf = (intf_thread_t*) p_this;
+    p_interface_thread = (intf_thread_t*) p_this;
 
     print_version(p_this);
-    msg_Dbg(p_intf, "[Speed Hold] interface sub-plugin opened");
+    msg_Dbg(p_interface_thread, "[Speed Hold] interface sub-plugin opened");
 
     return VLC_SUCCESS;
 }
@@ -527,7 +429,7 @@ static void CloseInterface(vlc_object_t *p_this)
 {
     msg_Dbg(p_this, "[Speed Hold] interface sub-plugin closed");
 
-    p_intf = NULL;
+    p_interface_thread = NULL;
 }
 
 
