@@ -1,64 +1,69 @@
+#
+# General settings
+#
 LD = ld
 CC = cc
-OS = Linux
 DESTDIR =
 INSTALL = install
-CFLAGS = -g0 -O3 -Wall -Wextra
+CFLAGS = -g0 -O3 -Wall -Wextra -std=gnu11 -fPIC -fdiagnostics-color
+CPPFLAGS = -DPIC -I. -Isrc -DMODULE_STRING="speed_hold"
 LDFLAGS =
-VLC_PLUGIN_CFLAGS := $(shell pkg-config --cflags vlc-plugin)
-VLC_PLUGIN_LIBS := $(shell pkg-config --libs vlc-plugin)
-
-plugindir := $(shell pkg-config vlc-plugin --variable=pluginsdir)
-
-override CC += -std=gnu11
-override CPPFLAGS += -DPIC -I. -Isrc
-override CFLAGS += -fPIC -fdiagnostics-color
-
-override CPPFLAGS += -DMODULE_STRING=\"speed_hold\"
-override CFLAGS += $(VLC_PLUGIN_CFLAGS)
-override LDFLAGS += $(VLC_PLUGIN_LIBS)
-
-ifeq ($(OS),Linux)
-  EXT := so
-else ifeq ($(OS),Windows)
-  EXT := dll
-  RES := packaging/windows/version.rc.o
-  RC := windres
-else ifeq ($(OS),macOS)
-  EXT := dylib
-else
-  $(error Unknown OS specified, please set OS to either Linux, Windows or macOS)
-endif
-
-TARGETS = libspeed_hold_plugin.$(EXT)
-
-all: libspeed_hold_plugin.$(EXT)
-
-install: all
-	mkdir -p -- $(DESTDIR)$(plugindir)/video_filter
-	$(INSTALL) --mode 0755 libspeed_hold_plugin.$(EXT) $(DESTDIR)$(plugindir)/video_filter
-
-install-strip:
-	$(MAKE) install INSTALL="$(INSTALL) -s"
-
-uninstall:
-	rm -f $(DESTDIR)$(plugindir)/video_filter/libspeed_hold_plugin.$(EXT)
-
-clean:
-	rm -f -- libspeed_hold_plugin.$(EXT) src/*.o packaging/windows/*.o
-
-mostlyclean: clean
-
 SOURCES = src/speed_hold.c src/osd.c src/playback.c
 
-$(SOURCES:%.c=%.o): %: src/speed_hold.c src/version.h
+# Read version info from src/version.h
+VERSION_MAJOR_VAL := $(shell grep -m1 "VERSION_MAJOR" src/version.h | awk '{print $$3}')
+VERSION_MINOR_VAL := $(shell grep -m1 "VERSION_MINOR" src/version.h | awk '{print $$3}')
+VERSION_PATCH_VAL := $(shell grep -m1 "VERSION_PATCH" src/version.h | awk '{print $$3}')
+VERSION_FULL_STR := "$(VERSION_MAJOR_VAL).$(VERSION_MINOR_VAL).$(VERSION_PATCH_VAL).0"
 
-%.rc.o: %.rc
-	$(RC) -o $@ $< $(VLC_PLUGIN_CFLAGS) -I.
+.PHONY: all linux install uninstall clean mostlyclean win32 win64
 
-%.rc:
+#
+# Default target: Linux
+#
+all: linux
 
-libspeed_hold_plugin.$(EXT): $(SOURCES:%.c=%.o) $(RES)
-	$(CC) -shared -o $@ $^ $(LDFLAGS)
+# --- Linux Build ---
+LINUX_VLC_CFLAGS = $(shell pkg-config --cflags vlc-plugin)
+LINUX_VLC_LIBS = $(shell pkg-config --libs vlc-plugin)
+LINUX_PLUGINDIR = $(shell pkg-config vlc-plugin --variable=pluginsdir)
+LINUX_TARGET = libspeed_hold_plugin.so
 
-.PHONY: all install install-strip uninstall clean mostlyclean
+linux: $(LINUX_TARGET)
+
+$(LINUX_TARGET): CFLAGS += $(LINUX_VLC_CFLAGS)
+$(LINUX_TARGET): $(SOURCES:%.c=%.o)
+	$(CC) -shared -o $@ $^ $(LDFLAGS) $(LINUX_VLC_LIBS)
+
+install:
+	mkdir -p -- $(DESTDIR)$(LINUX_PLUGINDIR)/video_filter
+	$(INSTALL) --mode 0755 $(LINUX_TARGET) $(DESTDIR)$(LINUX_PLUGINDIR)/video_filter
+
+uninstall:
+	rm -f $(DESTDIR)$(LINUX_PLUGINDIR)/video_filter/$(LINUX_TARGET)
+
+
+# --- Windows Build (Makefile logic) ---
+WIN_RES = packaging/windows/version.rc.o
+
+# Generic DLL target that uses passed-in CC, RC, etc.
+libspeed_hold_plugin.dll: $(SOURCES:%.c=%.o) $(WIN_RES)
+	$(CC) -shared -o $@ $^ $(LDFLAGS) $(VLC_LIBS)
+
+# --- Common rules ---
+%.o: %.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(VLC_CFLAGS) -c -o $@ $<
+
+$(WIN_RES): packaging/windows/version.rc.in
+	sed -e "s/@VERSION_MAJOR@/$(VERSION_MAJOR_VAL)/g" \
+	    -e "s/@VERSION_MINOR@/$(VERSION_MINOR_VAL)/g" \
+	    -e "s/@VERSION_PATCH@/$(VERSION_PATCH_VAL)/g" \
+	    -e "s/@VERSION_FULL_STR@/$(VERSION_FULL_STR)/g" \
+	    $< > packaging/windows/version.rc
+	$(RC) -o $@ packaging/windows/version.rc
+
+# --- Clean target additions for Windows ---
+clean:
+	rm -f -- $(LINUX_TARGET) libspeed_hold_plugin.dll $(SOURCES:%.c=%.o) $(WIN_RES) packaging/windows/version.rc
+
+mostlyclean: clean

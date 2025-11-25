@@ -1,8 +1,8 @@
 #include <winver.h>
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 2,2,0,0
- PRODUCTVERSION 2,2,0,0
+ FILEVERSION @VERSION_MAJOR@,@VERSION_MINOR@,@VERSION_PATCH@,0
+ PRODUCTVERSION @VERSION_MAJOR@,@VERSION_MINOR@,@VERSION_PATCH@,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -19,12 +19,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "supSugam"
             VALUE "FileDescription", "A VLC plugin that allows user to click on the video for play/pause (thanks to @nurupo), and click and hold for YouTube-like speed control."
-            VALUE "FileVersion", "2.2.0.0"
+            VALUE "FileVersion", "@VERSION_FULL_STR@"
             VALUE "InternalName", "libspeed_hold_plugin"
             VALUE "LegalCopyright", "(C) 2025 supSugam"
             VALUE "OriginalFilename", "libspeed_hold_plugin.dll"
             VALUE "ProductName", "VLC Speed Hold Plugin"
-            VALUE "ProductVersion", "2.2.0.0"
+            VALUE "ProductVersion", "@VERSION_FULL_STR@"
         END
     END
     BLOCK "VarFileInfo"
