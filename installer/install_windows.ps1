@@ -13,7 +13,7 @@ if (-not (Test-Administrator)) {
     exit 1
 }
 
-$RepoUrl = "https://raw.githubusercontent.com/ctrlcat/vlc-speed-hold-plugin/master"
+$RepoUrl = "https://raw.githubusercontent.com/supSugam/vlc-speed-hold-plugin/master"
 $PluginName = "libspeed_hold_plugin.dll"
 
 $Vlc64Path = "C:\Program Files\VideoLAN\VLC"

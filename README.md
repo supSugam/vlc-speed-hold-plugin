@@ -29,21 +29,21 @@ You can use the following one-liner commands to automatically download and insta
 
 Open a terminal and run:
 ```bash
-curl -sL https://raw.githubusercontent.com/ctrlcat/vlc-speed-hold-plugin/master/installer/install_linux.sh | bash
+curl -sL https://raw.githubusercontent.com/supSugam/vlc-speed-hold-plugin/master/installer/install_linux.sh | bash
 ```
 
 #### For macOS 🍎
 
 Open a terminal and run:
 ```bash
-curl -sL https://raw.githubusercontent.com/ctrlcat/vlc-speed-hold-plugin/master/installer/install_macos.sh | bash
+curl -sL https://raw.githubusercontent.com/supSugam/vlc-speed-hold-plugin/master/installer/install_macos.sh | bash
 ```
 
 #### For Windows 🪟
 
 Open PowerShell **as Administrator** and run:
 ```powershell
-irm https://raw.githubusercontent.com/ctrlcat/vlc-speed-hold-plugin/master/installer/install_windows.ps1 | iex
+irm https://raw.githubusercontent.com/supSugam/vlc-speed-hold-plugin/master/installer/install_windows.ps1 | iex
 ```
 
 ### Manual Installation
@@ -77,7 +77,7 @@ sudo apt-get update
 sudo apt-get install build-essential pkg-config libvlccore-dev libvlc-dev git
 
 # 2. Clone the repository
-git clone https://github.com/ctrlcat/vlc-speed-hold-plugin.git
+git clone https://github.com/supSugam/vlc-speed-hold-plugin.git
 cd vlc-speed-hold-plugin
 
 # 3. Build and install the plugin
@@ -111,7 +111,7 @@ Now, play any video and experiment with holding down your chosen mouse button to
 *   **Settings not saving?**
     *   Make sure to click "Save" in the preferences window and restart VLC.
 *   **Facing a bug or unexpected behavior?**
-    *   Please open an issue on the [GitHub repository](https://github.com/ctrlcat/vlc-speed-hold-plugin) with details about your operating system, VLC version, and the steps to reproduce the issue.
+    *   Please open an issue on the [GitHub repository](https://github.com/supSugam/vlc-speed-hold-plugin) with details about your operating system, VLC version, and the steps to reproduce the issue.
 
 ## 📄 License
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/ctrlcat/vlc-speed-hold-plugin/master"
+REPO_URL="https://raw.githubusercontent.com/supSugam/vlc-speed-hold-plugin/master"
 PLUGIN_NAME="libspeed_hold_plugin.dylib"
 ARCH=$(uname -m)
 
