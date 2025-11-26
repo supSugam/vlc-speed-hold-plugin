@@ -1,0 +1,23 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    xz-utils \
+    make \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz -O zig.tar.xz && \
+    tar -xf zig.tar.xz && \
+    mv zig-linux-x86_64-0.13.0 /opt/zig && \
+    rm zig.tar.xz && \
+    ln -s /opt/zig/zig /usr/local/bin/zig
+
+RUN wget https://download.videolan.org/pub/videolan/vlc/3.0.21/vlc-3.0.21.tar.xz -O vlc.tar.xz && \
+    tar -xf vlc.tar.xz && \
+    rm vlc.tar.xz
+
+ADD docker_build_runner_macos.sh /script.sh
+RUN chmod +x /script.sh
+
+ENTRYPOINT ["/script.sh"]

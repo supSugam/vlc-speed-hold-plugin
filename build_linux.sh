@@ -1,20 +1,24 @@
 #!/bin/bash
 set -e
 
-# Build the image
-docker buildx build \
-    --platform linux/amd64,linux/arm64,linux/arm/v7 \
-    -t vlc-speed-hold-plugin-artifacts \
-    --load \
-    .
+# Simple build script for Linux
+# Assumes build tools and VLC dev libs are installed on the host
 
-# Create a build directory
+echo "Building for Linux..."
+
+# Check dependencies
+if ! pkg-config --exists vlc-plugin; then
+    echo "Error: vlc-plugin pkg-config not found. Please install libvlc-dev / libvlccore-dev."
+    exit 1
+fi
+
+make clean
+make linux
+
+# Output directory
 mkdir -p build/linux
 
-# Extract the artifacts
-docker run --rm \
-    -v ./build/linux:/output \
-    vlc-speed-hold-plugin-artifacts \
-    /bin/sh -c "cp -r /plugins/* /output/"
+# Move artifact
+mv libspeed_hold_plugin.so build/linux/
 
-echo "Build complete. The plugins are in the build/linux directory."
+echo "Linux build complete. Artifact in build/linux/libspeed_hold_plugin.so"

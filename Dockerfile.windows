@@ -1,31 +1,17 @@
-# syntax=docker/dockerfile:1
-ARG DEBIAN_FRONTEND=noninteractive
+FROM debian:bookworm-slim
 
-# SDK Stage: Download and extract VLC SDKs
-FROM debian:bookworm-slim AS vlc-sdk
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc-mingw-w64-i686 \
-    gcc-mingw-w64-x86-64 \
-    lynx \
-    make \
-    p7zip-full \
-    pkg-config \
-    wget \
-    ca-certificates && \
-    wget https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.7z -O vlc-3.0.21-win64.7z && \
+RUN apt-get update && \
+    apt-get install -y \
+        gcc-mingw-w64-i686 \
+        gcc-mingw-w64-x86-64 \
+        lynx \
+        make \
+        p7zip-full \
+        pkg-config \
+        wget && \
     wget https://download.videolan.org/pub/videolan/vlc/3.0.21/win32/vlc-3.0.21-win32.7z -O vlc-3.0.21-win32.7z && \
-    
-    # Explicit extraction and copying of SDKs
-    mkdir -p /tmp/vlc-3.0.21-win64-full && \
-    7zr x vlc-3.0.21-win64.7z -o/tmp/vlc-3.0.21-win64-full && \
-    mkdir -p /opt/vlc-win64/sdk && \
-    cp -r /tmp/vlc-3.0.21-win64-full/vlc-3.0.21-win64/sdk/* /opt/vlc-win64/sdk && \
-    
-    mkdir -p /tmp/vlc-3.0.21-win32-full && \
-    7zr x vlc-3.0.21-win32.7z -o/tmp/vlc-3.0.21-win32-full && \
-    mkdir -p /opt/vlc-win32/sdk && \
-    cp -r /tmp/vlc-3.0.21-win32-full/vlc-3.0.21-win32/sdk/* /opt/vlc-win32/sdk && \
-    
+    wget https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.7z -O vlc-3.0.21-win64.7z && \
+    7zr x "*.7z" -o* "*/sdk" && \
     rm *.7z && \
     apt-get clean && \
     apt-get autoremove -y && \
@@ -34,19 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /tmp/* \
         /var/tmp/*
 
+ADD docker_build_runner.sh /script.sh
+RUN chmod +x /script.sh
 
-# Build Stage:
-FROM debian:bookworm-slim AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    pkg-config \
-    mingw-w64 \
-    lynx \
-    p7zip-full
-
-# Copy the prepared SDK folders from vlc-sdk stage
-COPY --from=vlc-sdk /opt/vlc-win32/sdk /opt/vlc-win32/sdk
-COPY --from=vlc-sdk /opt/vlc-win64/sdk /opt/vlc-win64/sdk
-
-COPY . /src
-WORKDIR /src
+ENTRYPOINT ["/script.sh"]
